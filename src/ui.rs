@@ -25,6 +25,7 @@ use std::{
 };
 
 use terminal_size::{
+    Height,
     Width,
     terminal_size,
 };
@@ -166,22 +167,8 @@ impl Display {
         self.states.lock().unwrap()[i] = status;
     }
 
-    pub fn finish(mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-        if !self.tty {
-            let states = self.states.lock().unwrap();
-            for (row, st) in self.rows.iter().zip(states.iter()) {
-                if let Some(ref header) = row.header {
-                    println!("{}", header.plain());
-                }
-                if let Some(line) = StatusLine::new(&row.name, st).plain() {
-                    println!("{line}");
-                }
-            }
-        }
+    pub fn finish(self) {
+        self.finish_verbose(&[]);
     }
 
     pub fn finish_verbose(mut self, logs: &[Option<CommitLog>]) {
@@ -192,23 +179,28 @@ impl Display {
         let states = self.states.lock().unwrap();
         let mut out = io::stdout().lock();
         if self.tty {
-            // replace live spinner rows
-            let _ = write!(out, "\x1b[{}A\x1b[J", self.drawn.load(Ordering::Relaxed));
-            for ((row, status), entry) in self.rows.iter().zip(states.iter()).zip(logs.iter()) {
+            let mut rendered = Vec::new();
+            for (index, (row, status)) in self.rows.iter().zip(states.iter()).enumerate() {
                 if let Some(ref header) = row.header {
-                    let _ = writeln!(out, "{}", header.tty());
+                    let _ = writeln!(rendered, "{}", header.tty());
                 }
                 let line = StatusLine::new(&row.name, status);
-                let _ = writeln!(out, "{}", line.tty());
+                let _ = writeln!(rendered, "{}", line.tty());
                 if line.is_updated()
-                    && let Some(log) = entry.as_ref()
+                    && let Some(log) = logs.get(index).and_then(Option::as_ref)
                 {
                     let indent = " ".repeat(4 + row.name.len() + 2);
-                    CommitLogLines::new(&indent, log).write_to(&mut out);
+                    CommitLogLines::new(&indent, log).write_to(&mut rendered);
                 }
             }
+
+            // replace live spinner rows line by line, since tmux's scroll-on-clear
+            // pushes the screen into scrollback when `\x1b[J` runs from the top-left
+            let list = String::from_utf8_lossy(&rendered).replace('\n', "\n\x1b[2K");
+            let drawn = self.drawn.load(Ordering::Relaxed);
+            let _ = write!(out, "\x1b[{drawn}A\x1b[2K{list}\x1b[J");
         } else {
-            for ((row, status), entry) in self.rows.iter().zip(states.iter()).zip(logs.iter()) {
+            for (index, (row, status)) in self.rows.iter().zip(states.iter()).enumerate() {
                 if let Some(ref header) = row.header {
                     let _ = writeln!(out, "{}", header.plain());
                 }
@@ -217,7 +209,7 @@ impl Display {
                     let _ = writeln!(out, "{text}");
                 }
                 if line.is_updated()
-                    && let Some(log) = entry.as_ref()
+                    && let Some(log) = logs.get(index).and_then(Option::as_ref)
                 {
                     let indent = " ".repeat(row.name.len() + 2);
                     CommitLogLines::new(&indent, log).write_to(&mut out);
@@ -329,25 +321,46 @@ impl<'a> FrameRenderer<'a> {
 
     fn draw(&self) -> usize {
         let mut out = String::new();
-        let terminal_width = Self::terminal_width();
+        let (terminal_width, terminal_height) = Self::terminal_dimensions();
 
         if self.drawn_rows > 0 {
             let _ = write!(out, "\x1b[{}A", self.drawn_rows);
         }
 
+        let lines = self
+            .rows
+            .iter()
+            .zip(self.states)
+            .flat_map(|(row, status)| {
+                let header = row.header.as_ref().map(GroupHeader::tty);
+                let line = StatusLine::new(&row.name, status).tty_with_frame(self.frame);
+                header
+                    .map(|text| (text, false))
+                    .into_iter()
+                    .chain([(line, true)])
+            })
+            .collect::<Vec<_>>();
+        let segments = lines
+            .iter()
+            .flat_map(|&(ref text, pin)| Self::terminal_segments(text).map(move |seg| (seg, pin)))
+            .collect::<Vec<_>>();
+
+        // cursor-up clamps at the top of the screen, so a frame taller than the
+        // terminal scrolls its first line into scrollback on every redraw
+        let budget = terminal_height.saturating_sub(2);
         let mut rows = 0_usize;
-        for (row, status) in self.rows.iter().zip(self.states) {
-            let header = row.header.as_ref().map(GroupHeader::tty);
-            let line = StatusLine::new(&row.name, status).tty_with_frame(self.frame);
-            for segment in header
-                .iter()
-                .chain([&line])
-                .flat_map(|text| Self::terminal_segments(text))
-            {
+        for (index, &(segment, _)) in segments.iter().enumerate() {
+            let height = Self::visual_rows(segment, terminal_width);
+            if rows + height > budget {
+                let hidden = segments[index..].iter().filter(|&&(_, pin)| pin).count();
                 out.push_str("\x1b[2K");
-                let _ = writeln!(out, "{segment}");
-                rows += Self::visual_rows(segment, terminal_width);
+                let _ = writeln!(out, "… {hidden} more");
+                rows += 1;
+                break;
             }
+            out.push_str("\x1b[2K");
+            let _ = writeln!(out, "{segment}");
+            rows += height;
         }
 
         let mut stdout = io::stdout().lock();
@@ -356,8 +369,10 @@ impl<'a> FrameRenderer<'a> {
         rows
     }
 
-    fn terminal_width() -> usize {
-        terminal_size().map_or(80, |(Width(width), _)| usize::from(width).max(1))
+    fn terminal_dimensions() -> (usize, usize) {
+        terminal_size().map_or((80, 24), |(Width(width), Height(height))| {
+            (usize::from(width).max(1), usize::from(height))
+        })
     }
 
     fn terminal_segments(line: &str) -> impl Iterator<Item = &str> {
