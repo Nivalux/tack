@@ -530,7 +530,7 @@ fn update_submodules(repo: &gix::Repository, parent_url: &str, depth: u8) -> Res
         let Some(expected) = submodule.head_id().ok().flatten().or(submodule.index_id()?) else {
             continue;
         };
-        let url = resolve_submodule_url(parent_url, &submodule.url()?.to_bstring().to_string());
+        let url = resolve_submodule_url(parent_url, &submodule.url()?.to_bstring().to_string())?;
         let work_dir = submodule.work_dir()?;
         let _ = fs::create_dir_all(&work_dir);
         let sub_repo = fetch_pinned(&url, None, &expected.to_string(), &work_dir)
@@ -544,20 +544,27 @@ fn update_submodules(repo: &gix::Repository, parent_url: &str, depth: u8) -> Res
     Ok(())
 }
 
-fn resolve_submodule_url(parent_url: &str, sub_url: &str) -> String {
+fn resolve_submodule_url(parent_url: &str, sub_url: &str) -> Result<String> {
     if !(sub_url.starts_with("../") || sub_url.starts_with("./")) {
-        return sub_url.to_owned();
+        return Ok(sub_url.to_owned());
     }
-    let mut base = parent_url
-        .strip_suffix('/')
-        .unwrap_or(parent_url)
-        .to_owned();
+    let trimmed = parent_url.strip_suffix('/').unwrap_or(parent_url);
+    let path_start = match trimmed.split_once("://") {
+        Some((scheme, after)) => scheme.len() + 3 + after.find('/').unwrap_or(after.len()),
+        // scp-style `host:path` remote
+        None => trimmed.find(':').map_or(0, |colon| colon + 1),
+    };
+    let (root, path) = trimmed.split_at(path_start);
+    let mut segments = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
     let mut rest = sub_url;
     loop {
         if let Some(tail) = rest.strip_prefix("../") {
-            base = base
-                .rsplit_once('/')
-                .map_or_else(String::new, |(head, _)| head.to_owned());
+            if segments.pop().is_none() {
+                misstep::bail!("submodule url {sub_url} climbs above {parent_url}");
+            }
             rest = tail;
         } else if let Some(tail) = rest.strip_prefix("./") {
             rest = tail;
@@ -565,7 +572,9 @@ fn resolve_submodule_url(parent_url: &str, sub_url: &str) -> String {
             break;
         }
     }
-    format!("{base}/{rest}")
+    let separator = if root.ends_with(':') { "" } else { "/" };
+    segments.push(rest);
+    Ok(format!("{root}{separator}{}", segments.join("/")))
 }
 
 fn ref_candidates(reff: Option<&str>) -> Vec<Option<String>> {
