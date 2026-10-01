@@ -4,8 +4,10 @@ use std::{
     collections::BTreeSet,
     fs::{
         self,
+        OpenOptions,
         Permissions,
     },
+    io::Write as _,
     num::NonZeroU32,
     os::unix::fs::{
         PermissionsExt as _,
@@ -478,6 +480,10 @@ fn checkout_commit(repo: &gix::Repository, commit: &gix::Commit<'_>) -> Result<(
 
 /// writes blobs verbatim, since nix's git fetcher applies no `.gitattributes`
 /// filters and an eol-converted file yields a NAR hash nix never reproduces
+#[expect(
+    clippy::create_dir,
+    reason = "an existing entry must fail the checkout"
+)]
 fn write_tree(repo: &gix::Repository, tree_id: gix::ObjectId, dir: &Path) -> Result<()> {
     let options = ComponentOptions {
         protect_windows: false,
@@ -492,21 +498,30 @@ fn write_tree(repo: &gix::Repository, tree_id: gix::ObjectId, dir: &Path) -> Res
         component(name, mode, options)
             .with_context(|| format!("unsafe path {name:?} in tree {tree_id}"))?;
         let path = dir.join(from_bstr(name));
+        // exclusive, so a duplicate entry can't write through an earlier symlink
+        let create_file = |data: &[u8]| -> Result<()> {
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)?
+                .write_all(data)?;
+            Ok(())
+        };
         match kind {
             EntryKind::Tree => {
-                fs::create_dir_all(&path)?;
+                fs::create_dir(&path)?;
                 write_tree(repo, entry.id().detach(), &path)?;
             },
-            EntryKind::Blob => fs::write(&path, &repo.find_blob(entry.id())?.data)?,
+            EntryKind::Blob => create_file(&repo.find_blob(entry.id())?.data)?,
             EntryKind::BlobExecutable => {
-                fs::write(&path, &repo.find_blob(entry.id())?.data)?;
+                create_file(&repo.find_blob(entry.id())?.data)?;
                 fs::set_permissions(&path, Permissions::from_mode(0o755))?;
             },
             EntryKind::Link => {
                 let target = repo.find_blob(entry.id())?;
                 symlink(from_bstr(target.data.as_bstr()), &path)?;
             },
-            EntryKind::Commit => fs::create_dir_all(&path)?,
+            EntryKind::Commit => fs::create_dir(&path)?,
         }
     }
     Ok(())
