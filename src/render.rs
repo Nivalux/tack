@@ -2,6 +2,12 @@
 
 use std::fmt;
 
+use toml_edit::{
+    Array,
+    Key,
+    Value,
+};
+
 use crate::{
     history,
     report::{
@@ -164,7 +170,7 @@ pub fn print_report(report: &DedupReport) {
     let kw = pin_lines
         .iter()
         .chain(auto_lines.iter())
-        .map(|line| follow_key(line).len())
+        .map(|line| follow_key(line).chars().count())
         .max()
         .unwrap_or(0);
     println!("\nshare via [all_follow] in pins.toml:");
@@ -230,23 +236,24 @@ impl fmt::Display for RenderedMark {
     }
 }
 
-fn follow_key(follow: &CollapsedFollow) -> &str {
-    match *follow {
+// names come from remote lockfiles, and the block is advertised as pasteable
+fn follow_key(follow: &CollapsedFollow) -> String {
+    let name = match *follow {
         CollapsedFollow::Single { ref alias, .. } => alias,
         CollapsedFollow::Group { ref target, .. } => target,
-    }
+    };
+    Key::new(name.as_str()).to_string()
 }
 
 fn follow_rhs(follow: &CollapsedFollow) -> String {
     match *follow {
-        CollapsedFollow::Single { ref target, .. } => format!("\"{target}\""),
+        CollapsedFollow::Single { ref target, .. } => Value::from(target.as_str()).to_string(),
         CollapsedFollow::Group { ref aliases, .. } => {
-            let body = aliases
+            aliases
                 .iter()
-                .map(|alias| format!("\"{alias}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{body}]")
+                .map(String::as_str)
+                .collect::<Array>()
+                .to_string()
         },
     }
 }
