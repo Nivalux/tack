@@ -234,18 +234,22 @@ fn netrc_credential(host: &str) -> Option<HttpCredential> {
 }
 
 fn parse_netrc(contents: &str, host: &str) -> Option<HttpCredential> {
-    let mut tokens = netrc_tokens(contents).into_iter();
+    const KEYWORDS: [&str; 6] = [
+        "machine", "default", "login", "password", "account", "macdef",
+    ];
+
+    let mut tokens = netrc_tokens(contents).into_iter().peekable();
     let mut in_machine = false;
     let mut login: Option<String> = None;
     let mut password: Option<String> = None;
     while let Some(token) = tokens.next() {
+        // a stanza missing a value must not swallow the next stanza's keyword
+        let mut value = || tokens.next_if(|next| !KEYWORDS.contains(&next.as_str()));
         match token.as_str() {
-            "machine" => {
-                in_machine = tokens.next().is_some_and(|name| name == host);
-            },
-            "default" => in_machine = false,
-            "login" if in_machine => login = tokens.next(),
-            "password" if in_machine => password = tokens.next(),
+            "machine" | "default" if in_machine => break,
+            "machine" => in_machine = value().is_some_and(|name| name == host),
+            "login" if in_machine => login = value(),
+            "password" if in_machine => password = value(),
             _ => {},
         }
         if in_machine && login.is_some() && password.is_some() {
