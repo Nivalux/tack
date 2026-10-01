@@ -191,12 +191,10 @@ fn detect_host(host: &str) -> ForgeKind {
     }
 
     let detected = probe_host(host);
-    if detected != ForgeKind::Unknown {
-        cache
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(host.to_owned(), detected);
-    }
+    cache
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(host.to_owned(), detected);
     detected
 }
 
