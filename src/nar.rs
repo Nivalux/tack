@@ -31,8 +31,18 @@ pub fn hash_path(root: &Path) -> Result<String> {
     Ok(format!("sha256-{}", BASE64.encode(&hash.finalize())))
 }
 
-pub fn hash_bytes(bytes: &[u8]) -> String {
-    format!("sha256-{}", BASE64.encode(&Sha256::hash(bytes)))
+#[expect(clippy::large_stack_arrays, reason = "64kb isn't that large, really")]
+pub fn hash_reader<R: io::Read>(mut reader: R) -> io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buf = [0_u8; 0x10000];
+    loop {
+        let read = reader.read(&mut buf)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buf[..read]);
+    }
+    Ok(format!("sha256-{}", BASE64.encode(&hasher.finalize())))
 }
 
 fn emit_node(hash: &mut Sha256, path: &mut PathBuf) -> Result<()> {

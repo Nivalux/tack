@@ -3,7 +3,6 @@
 use std::{
     borrow::Cow,
     fs,
-    io::Read as _,
     os::unix::fs::MetadataExt as _,
     path::{
         Path,
@@ -175,12 +174,8 @@ pub fn fetch_fixed_pin(url: &str, unpack: Option<Unpack>) -> Result<FetchedPin> 
         .call()
         .with_context(|| format!("GET {url}"))?;
     let immutable_url = immutable_url_of(&resp, url);
-    let mut bytes = Vec::new();
-    resp.body_mut()
-        .as_reader()
-        .read_to_end(&mut bytes)
+    let sha256 = nar::hash_reader(resp.body_mut().as_reader())
         .with_context(|| format!("read body of {url}"))?;
-    let sha256 = nar::hash_bytes(&bytes);
 
     // redirected immutable urls may lose the archive extension
     let kind = unpack.unwrap_or_else(|| {
