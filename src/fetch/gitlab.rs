@@ -89,7 +89,8 @@ impl GitlabClient {
 
     fn commit_last_modified(self, host: &str, owner: &str, repo: &str, rev: &str) -> Option<i64> {
         let project = encoded_project(owner, repo);
-        let url = format!("https://{host}/api/v4/projects/{project}/repository/commits/{rev}");
+        let sha = percent_encode(rev);
+        let url = format!("https://{host}/api/v4/projects/{project}/repository/commits/{sha}");
         let commit = self
             .http
             .gitlab_json::<GitlabCommitDate>(&url, host, Some(Duration::from_secs(5)))
@@ -151,12 +152,12 @@ fn offset_seconds(input: &str) -> Result<i64> {
         .split_once(':')
         .with_context(|| format!("bad timezone offset: {input}"))?;
     let hours = hh
-        .parse::<i64>()
+        .parse::<u8>()
         .with_context(|| format!("bad timezone offset: {input}"))?;
     let mins = mm
-        .parse::<i64>()
+        .parse::<u8>()
         .with_context(|| format!("bad timezone offset: {input}"))?;
-    Ok(sign * (hours * 3_600 + mins * 60))
+    Ok(sign * (i64::from(hours) * 3_600 + i64::from(mins) * 60))
 }
 
 pub(super) fn compare_status(
