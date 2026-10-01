@@ -123,7 +123,9 @@ pub fn alias(project: &Project, name: &str, template: Option<&str>, remove: bool
         project.save_pins(&doc)?;
         println!("removed alias {name}");
     } else {
-        let tpl = template.expect("template required");
+        let Some(tpl) = template else {
+            user_bail!("alias {name} needs a template, or --rm to remove it");
+        };
         if !tpl.contains("{path}") {
             user_bail!("alias template must contain '{{path}}'");
         }
