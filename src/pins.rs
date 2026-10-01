@@ -139,21 +139,33 @@ impl Input {
             .get("url")
             .and_then(Item::as_str)
             .with_context(|| format!("input '{name}' has no url"))?;
-        let pin_type = match entry.get("type").and_then(Item::as_str) {
+        let str_field = |key: &str| {
+            entry
+                .get(key)
+                .map(|item| {
+                    item.as_str()
+                        .with_context(|| format!("input '{name}': {key} must be a string"))
+                })
+                .transpose()
+        };
+        let bool_field = |key: &str| {
+            entry
+                .get(key)
+                .map(|item| {
+                    item.as_bool()
+                        .with_context(|| format!("input '{name}': {key} must be a bool"))
+                })
+                .transpose()
+        };
+        let pin_type = match str_field("type")? {
             Some(typ) => {
                 typ.parse::<PinType>()
                     .with_context(|| format!("input '{name}'"))?
             },
-            None => {
-                match entry.get("flake").and_then(Item::as_bool) {
-                    Some(false) => PinType::Fetch,
-                    _ => PinType::Flake,
-                }
-            },
+            None if bool_field("flake")? == Some(false) => PinType::Fetch,
+            None => PinType::Flake,
         };
-        let unpack = entry
-            .get("unpack")
-            .and_then(Item::as_str)
+        let unpack = str_field("unpack")?
             .map(|unpack| {
                 unpack
                     .parse::<Unpack>()
@@ -195,30 +207,13 @@ impl Input {
             },
             None => BTreeSet::new(),
         };
-        let group = entry
-            .get("group")
-            .map(|group_item| {
-                group_item
-                    .as_str()
-                    .with_context(|| format!("input '{name}': group must be a string"))
-            })
-            .transpose()?;
-        let frozen = entry
-            .get("frozen")
-            .map(|frozen_item| {
-                frozen_item
-                    .as_bool()
-                    .with_context(|| format!("input '{name}': frozen must be a bool"))
-            })
-            .transpose()?
-            .unwrap_or(false);
+        let group = str_field("group")?;
+        let frozen = bool_field("frozen")?.unwrap_or(false);
+        let submodules = bool_field("submodules")?.unwrap_or(false);
         Ok(Self {
             name: name.to_owned(),
             url: url.to_owned(),
-            submodules: entry
-                .get("submodules")
-                .and_then(Item::as_bool)
-                .unwrap_or(false),
+            submodules,
             pin_type,
             unpack,
             follows,
