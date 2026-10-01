@@ -142,9 +142,7 @@ pub fn redo_view(project: &Project) -> Result<Option<View>> {
 fn tolerate<T>(result: StdResult<T, FetchError>) -> (Option<T>, Option<String>) {
     match result {
         Ok(value) => (Some(value), None),
-        Err(
-            FetchError::NotFound { .. } | FetchError::Transport(_) | FetchError::RateLimited { .. },
-        ) => (None, None),
+        Err(FetchError::NotFound { .. }) => (None, None),
         Err(err) => (None, Some(err.to_string())),
     }
 }
