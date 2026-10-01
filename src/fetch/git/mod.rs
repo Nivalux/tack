@@ -546,6 +546,13 @@ fn update_submodules(repo: &gix::Repository, parent_url: &str, depth: u8) -> Res
             continue;
         };
         let url = resolve_submodule_url(parent_url, &submodule.url()?.to_bstring().to_string())?;
+        // git refuses these too since 2.38.1 (CVE-2022-39253)
+        if is_local_url(&url) && !is_local_url(parent_url) {
+            misstep::bail!(
+                "submodule {} of {parent_url} points at local {url}",
+                submodule.name()
+            );
+        }
         let work_dir = submodule.work_dir()?;
         let _ = fs::create_dir_all(&work_dir);
         let sub_repo = fetch_pinned(&url, None, &expected.to_string(), &work_dir)
@@ -557,6 +564,10 @@ fn update_submodules(repo: &gix::Repository, parent_url: &str, depth: u8) -> Res
     }
 
     Ok(())
+}
+
+fn is_local_url(url: &str) -> bool {
+    gix::Url::try_from(url).is_ok_and(|parsed| parsed.scheme == Scheme::File)
 }
 
 fn resolve_submodule_url(parent_url: &str, sub_url: &str) -> Result<String> {
