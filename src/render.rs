@@ -190,6 +190,15 @@ pub fn print_report(report: &DedupReport) {
             println!("  {key:kw$} = {rhs}");
         }
     }
+    if !report.follows.conflicts.is_empty() {
+        if !pin_lines.is_empty() || !auto_lines.is_empty() {
+            println!();
+        }
+        for name in &report.follows.conflicts {
+            let key = Key::new(name.as_str());
+            println!("  # {key}: reachable from several sources, pick a target by hand");
+        }
+    }
 }
 
 struct RenderedMark {

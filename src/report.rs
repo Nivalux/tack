@@ -95,13 +95,50 @@ pub struct DedupReport {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FollowSuggestions {
-    pub pin:  FollowMap,
-    pub auto: FollowMap,
+    pub pin:       FollowMap,
+    pub auto:      FollowMap,
+    /// names whose groups disagree on a target
+    pub conflicts: BTreeSet<String>,
+}
+
+#[derive(Clone, Copy)]
+pub enum FollowKind {
+    Pin,
+    Auto,
 }
 
 impl FollowSuggestions {
     pub fn is_empty(&self) -> bool {
-        self.pin.is_empty() && self.auto.is_empty()
+        self.pin.is_empty() && self.auto.is_empty() && self.conflicts.is_empty()
+    }
+
+    /// `[all_follow]` matches by name across the whole graph, so a name two
+    /// groups point elsewhere is left for the user instead of letting the
+    /// last group win
+    pub(crate) fn suggest(&mut self, kind: FollowKind, alias: &str, target: &str) {
+        if self.conflicts.contains(alias) {
+            return;
+        }
+        let previous = self
+            .pin
+            .aliases
+            .get(alias)
+            .or_else(|| self.auto.aliases.get(alias));
+        match previous {
+            Some(existing) if existing != target => {
+                self.pin.aliases.remove(alias);
+                self.auto.aliases.remove(alias);
+                self.conflicts.insert(alias.to_owned());
+            },
+            Some(_) => {},
+            None => {
+                let map = match kind {
+                    FollowKind::Pin => &mut self.pin,
+                    FollowKind::Auto => &mut self.auto,
+                };
+                map.aliases.insert(alias.to_owned(), target.to_owned());
+            },
+        }
     }
 }
 
@@ -113,10 +150,6 @@ pub struct FollowMap {
 impl FollowMap {
     pub fn is_empty(&self) -> bool {
         self.aliases.is_empty()
-    }
-
-    pub(crate) fn insert(&mut self, alias: String, target: String) -> Option<String> {
-        self.aliases.insert(alias, target)
     }
 
     pub fn collapsed(&self) -> Vec<CollapsedFollow> {

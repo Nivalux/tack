@@ -21,6 +21,7 @@ use crate::{
     report::{
         DedupGroup,
         DedupReport,
+        FollowKind,
         FollowSuggestions,
         NameSources,
         RevGroup,
@@ -86,7 +87,7 @@ pub(super) fn build_report(
         if let Some(top) = top_name {
             for entry in entries {
                 if !entry.path.is_empty() && !all_follow.contains_key(&entry.name) {
-                    follows.pin.insert(entry.name.clone(), top.to_owned());
+                    follows.suggest(FollowKind::Pin, &entry.name, top);
                 }
             }
         } else {
@@ -97,7 +98,7 @@ pub(super) fn build_report(
             let canonical = pick_name(id, &aliases);
             for alias in &aliases {
                 if !all_follow.contains_key(alias) {
-                    follows.auto.insert(alias.clone(), canonical.clone());
+                    follows.suggest(FollowKind::Auto, alias, &canonical);
                 }
             }
         }
