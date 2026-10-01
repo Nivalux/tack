@@ -72,7 +72,8 @@ into a single array entry.
 ## pin types
 
 - `flake` (default) — evaluate the input's `flake.nix`, expose its outputs
-- `fetch` — source tree only, no flake eval. legacy `flake = false`
+- `fetch` — source tree only, no flake eval. legacy `flake = false`. follows
+  reach into an upstream `.tack` only when it sets `[tack] recomposable = true`
 - `fixed` — hash-locked download; won't drift, `tack update` refuses to
   silently relock (use `--accept` if you want to)
 
