@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 use std::{
+    panic::{
+        self,
+        AssertUnwindSafe,
+    },
     sync::mpsc,
     thread,
 };
@@ -35,7 +39,10 @@ where
                 break;
             };
             in_flight -= 1;
-            on_result(index, output);
+            match output {
+                Ok(value) => on_result(index, value),
+                Err(payload) => panic::resume_unwind(payload),
+            }
 
             if let Some((next_index, item)) = pending.next() {
                 spawn(scope, sender.as_ref().unwrap(), &run, next_index, item);
@@ -66,7 +73,7 @@ where
 
 fn spawn<'scope, I, O, F>(
     scope: &'scope thread::Scope<'scope, '_>,
-    tx: &mpsc::Sender<(usize, O)>,
+    tx: &mpsc::Sender<(usize, thread::Result<O>)>,
     run: &'scope F,
     index: usize,
     item: I,
@@ -76,8 +83,9 @@ fn spawn<'scope, I, O, F>(
     F: Fn(usize, I) -> O + Sync + 'scope,
 {
     let sender = tx.clone();
+    // a worker dying unsent would leave `stream` blocked in recv forever
     scope.spawn(move || {
-        let output = run(index, item);
+        let output = panic::catch_unwind(AssertUnwindSafe(|| run(index, item)));
         _ = sender.send((index, output));
     });
 }
