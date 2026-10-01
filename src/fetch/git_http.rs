@@ -18,7 +18,6 @@ use std::{
     },
 };
 
-use gix::url::Scheme;
 use gix_transport::{
     IsSpuriousError as _,
     client::blocking_io::{
@@ -43,6 +42,7 @@ use ureq::{
     http::{
         HeaderMap,
         Response,
+        Uri,
     },
 };
 
@@ -515,12 +515,17 @@ fn send_once(
 }
 
 /// credentials are cached per host, so never send them in cleartext off this
-/// machine
+/// machine. parsed as ureq dials it, gix reads `https://a?@b` as host `b`
 fn credential_host(url: &str) -> Option<String> {
-    let parsed = gix::Url::try_from(url).ok()?;
-    let host = parsed.host()?;
-    let loopback = host == "localhost" || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
-    (parsed.scheme == Scheme::Https || loopback).then(|| host.to_owned())
+    let uri = url.parse::<Uri>().ok()?;
+    let host = uri.host()?;
+    let loopback = host == "localhost"
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    (uri.scheme_str() == Some("https") || loopback).then(|| host.to_owned())
 }
 
 fn has_authorization(header_lines: &[String]) -> bool {
@@ -651,13 +656,13 @@ fn same_request_origin(left: &str, right: &str) -> bool {
         .is_some_and(|(left_origin, right_origin)| left_origin == right_origin)
 }
 
-fn request_origin(url: &str) -> Option<String> {
-    let (scheme, rest) = url.split_once("://")?;
-    let raw_authority = rest.split('/').next().unwrap_or(rest);
-    let authority = raw_authority
-        .rsplit_once('@')
-        .map_or(raw_authority, |(_, host)| host);
-    Some(format!("{scheme}://{authority}").to_ascii_lowercase())
+fn request_origin(url: &str) -> Option<(String, String, Option<u16>)> {
+    let uri = url.parse::<Uri>().ok()?;
+    Some((
+        uri.scheme_str()?.to_ascii_lowercase(),
+        uri.host()?.to_ascii_lowercase(),
+        uri.port_u16(),
+    ))
 }
 
 fn format_headers(headers: &HeaderMap) -> Vec<u8> {
