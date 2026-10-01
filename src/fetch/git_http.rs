@@ -11,12 +11,14 @@ use std::{
         Read,
         Write,
     },
+    net::IpAddr,
     sync::{
         Arc,
         Mutex,
     },
 };
 
+use gix::url::Scheme;
 use gix_transport::{
     IsSpuriousError as _,
     client::blocking_io::{
@@ -122,7 +124,7 @@ impl Http for UreqHttp {
             .into_iter()
             .map(|header| header.as_ref().to_owned())
             .collect::<Vec<_>>();
-        if effective_url != url && !same_request_authority(url, &effective_url) {
+        if effective_url != url && !same_request_origin(url, &effective_url) {
             header_lines.retain(|header| !is_authorization_header(header));
         }
         let state = Arc::new(Mutex::new(PendingPost {
@@ -512,9 +514,13 @@ fn send_once(
     Ok(SendOutcome::Response(response))
 }
 
-fn request_host(url: &str) -> Option<String> {
+/// credentials are cached per host, so never send them in cleartext off this
+/// machine
+fn credential_host(url: &str) -> Option<String> {
     let parsed = gix::Url::try_from(url).ok()?;
-    parsed.host().map(str::to_owned)
+    let host = parsed.host()?;
+    let loopback = host == "localhost" || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    (parsed.scheme == Scheme::Https || loopback).then(|| host.to_owned())
 }
 
 fn has_authorization(header_lines: &[String]) -> bool {
@@ -559,7 +565,7 @@ fn send_ureq(
         .into_iter()
         .map(|header| header.as_ref().to_owned())
         .collect::<Vec<_>>();
-    let host = request_host(url);
+    let host = credential_host(url);
 
     let mut sent_auth = has_authorization(&header_lines);
     if !sent_auth
@@ -639,19 +645,19 @@ fn replace_base_url(url: &str, base_url: &str, effective_base: &str) -> String {
     )
 }
 
-fn same_request_authority(left: &str, right: &str) -> bool {
-    request_authority(left)
-        .zip(request_authority(right))
-        .is_some_and(|(left_authority, right_authority)| left_authority == right_authority)
+fn same_request_origin(left: &str, right: &str) -> bool {
+    request_origin(left)
+        .zip(request_origin(right))
+        .is_some_and(|(left_origin, right_origin)| left_origin == right_origin)
 }
 
-fn request_authority(url: &str) -> Option<String> {
-    let (_, rest) = url.split_once("://")?;
+fn request_origin(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
     let raw_authority = rest.split('/').next().unwrap_or(rest);
     let authority = raw_authority
         .rsplit_once('@')
         .map_or(raw_authority, |(_, host)| host);
-    Some(authority.to_ascii_lowercase())
+    Some(format!("{scheme}://{authority}").to_ascii_lowercase())
 }
 
 fn format_headers(headers: &HeaderMap) -> Vec<u8> {
