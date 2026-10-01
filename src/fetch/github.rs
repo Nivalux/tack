@@ -131,7 +131,7 @@ impl GithubClient {
     fn download_tarball(self, owner: &str, repo: &str, rev: &str, into: &Path) -> Result<PathBuf> {
         let url = format!("https://codeload.github.com/{owner}/{repo}/tar.gz/{rev}");
         with_credential_fallback("github.com", true, |credential| {
-            let request = HttpClient::with_github_credential(self.http.get(&url), credential);
+            let request = HttpClient::with_credential(self.http.get(&url), credential);
             let mut resp = request
                 .call()
                 .map_err(|err| FetchError::from_ureq(err, &url))?;

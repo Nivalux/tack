@@ -123,7 +123,12 @@ fn scrape_access_tokens(path: &Path, tokens: &mut HashMap<String, String>, depth
         };
         if matches!(key.trim(), "access-tokens" | "extra-access-tokens") {
             for pair in value.split_whitespace() {
-                if let Some((host, token)) = pair.split_once('=')
+                // nix types gitlab tokens as `PAT:`/`OAuth2:`, bearer takes both bare
+                if let Some((host, typed_token)) = pair.split_once('=')
+                    && let token = typed_token
+                        .strip_prefix("PAT:")
+                        .or_else(|| typed_token.strip_prefix("OAuth2:"))
+                        .unwrap_or(typed_token)
                     && !host.is_empty()
                     && !token.is_empty()
                 {

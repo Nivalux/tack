@@ -48,7 +48,6 @@ const GITHUB_ACCEPT: &str = "application/vnd.github+json";
 const GITHUB_GRAPHQL_URL: &str = "https://api.github.com/graphql";
 const GITHUB_GRAPHQL_TIMEOUT: Duration = Duration::from_secs(15);
 const APPLICATION_JSON: &str = "application/json";
-const GITLAB_TOKEN_HEADER: &str = "PRIVATE-TOKEN";
 
 pub(super) fn agent() -> &'static Agent {
     static AGENT: OnceLock<Agent> = OnceLock::new();
@@ -101,22 +100,14 @@ impl HttpClient {
         request.header(CONTENT_TYPE, APPLICATION_JSON)
     }
 
-    pub(super) fn with_github_credential<B>(
+    /// `Authorization` because ureq drops it on redirect, a custom header like
+    /// gitlab's `PRIVATE-TOKEN` would follow the redirect to any host
+    pub(super) fn with_credential<B>(
         request: RequestBuilder<B>,
         credential: Credential,
     ) -> RequestBuilder<B> {
         match credential {
             Credential::Token(token) => request.header(AUTHORIZATION, format!("Bearer {token}")),
-            Credential::Anonymous => request,
-        }
-    }
-
-    pub(super) fn with_gitlab_credential<B>(
-        request: RequestBuilder<B>,
-        credential: Credential,
-    ) -> RequestBuilder<B> {
-        match credential {
-            Credential::Token(token) => request.header(GITLAB_TOKEN_HEADER, token),
             Credential::Anonymous => request,
         }
     }
@@ -127,7 +118,7 @@ impl HttpClient {
     {
         with_credential_fallback("github.com", true, |credential| {
             let mut req =
-                Self::with_github_credential(Self::with_github_headers(self.get(url)), credential);
+                Self::with_credential(Self::with_github_headers(self.get(url)), credential);
             if let Some(timeout) = timeout_limit {
                 req = req.config().timeout_global(Some(timeout)).build();
             }
@@ -155,10 +146,8 @@ impl HttpClient {
             ));
         }
         with_credential_fallback(host, true, |credential| {
-            let mut req = Self::with_gitlab_credential(
-                self.get(url).header(ACCEPT, APPLICATION_JSON),
-                credential,
-            );
+            let mut req =
+                Self::with_credential(self.get(url).header(ACCEPT, APPLICATION_JSON), credential);
             if let Some(timeout) = timeout_limit {
                 req = req.config().timeout_global(Some(timeout)).build();
             }
@@ -187,7 +176,7 @@ impl HttpClient {
             .map_err(|err| FetchError::Github(format!("serialize graphql request: {err}")))?;
 
         with_credential_fallback("github.com", false, |credential| {
-            let mut resp = Self::with_github_credential(
+            let mut resp = Self::with_credential(
                 Self::with_json_body(Self::with_github_headers(self.post(GITHUB_GRAPHQL_URL))),
                 credential,
             )
