@@ -253,11 +253,13 @@ impl<'a> CommitLogLines<'a> {
         );
 
         for &(ref hash, ref subject) in &self.log.fresh {
+            // upstream controls subjects, so strip escapes a terminal would act on
             let _ = writeln!(
                 out,
-                "{}{}    {subject}",
+                "{}{}    {}",
                 self.indent,
-                CommitHash::new(hash).short()
+                CommitHash::new(hash).short(),
+                subject.replace(char::is_control, "")
             );
         }
 
