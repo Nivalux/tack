@@ -140,10 +140,12 @@ fn offset_seconds(input: &str) -> Result<i64> {
     if zone == "Z" || zone.is_empty() {
         return Ok(0);
     }
-    let (sign, body) = match zone.split_at(1) {
-        ("+", rest) => (1, rest),
-        ("-", rest) => (-1, rest),
-        _ => bail!("bad timezone offset: {input}"),
+    let (sign, body) = if let Some(rest) = zone.strip_prefix('+') {
+        (1, rest)
+    } else if let Some(rest) = zone.strip_prefix('-') {
+        (-1, rest)
+    } else {
+        bail!("bad timezone offset: {input}")
     };
     let (hh, mm) = body
         .split_once(':')
