@@ -261,10 +261,10 @@ impl PinsDoc {
 
     pub fn inputs(&self) -> Result<Vec<Input>> {
         let mut out = Vec::new();
-        let Some(table) = self.doc.get("inputs").and_then(Item::as_table) else {
+        let Some(table) = self.doc.get("inputs").and_then(Item::as_table_like) else {
             return Ok(out);
         };
-        for (name, item) in table {
+        for (name, item) in table.iter() {
             out.push(Input::from_item(name, item)?);
         }
         for input in &out {
@@ -283,7 +283,7 @@ impl PinsDoc {
     pub fn has_input(&self, name: &str) -> bool {
         self.doc
             .get("inputs")
-            .and_then(Item::as_table)
+            .and_then(Item::as_table_like)
             .is_some_and(|tbl| tbl.contains_key(name))
     }
 
@@ -295,7 +295,7 @@ impl PinsDoc {
     pub fn remove_input(&mut self, name: &str) -> bool {
         self.doc
             .get_mut("inputs")
-            .and_then(Item::as_table_mut)
+            .and_then(Item::as_table_like_mut)
             .and_then(|tbl| tbl.remove(name))
             .is_some()
     }
@@ -335,12 +335,15 @@ impl PinsDoc {
     }
 
     fn ensure_table(&mut self, name: &str) -> &mut Table {
-        if self.doc.get(name).and_then(Item::as_table).is_none() {
-            self.doc.insert(name, Item::Table(Table::new()));
-        }
+        let table = self
+            .doc
+            .remove(name)
+            .and_then(|item| item.into_table().ok())
+            .unwrap_or_default();
         self.doc
-            .get_mut(name)
-            .and_then(Item::as_table_mut)
+            .entry(name)
+            .or_insert(Item::Table(table))
+            .as_table_mut()
             .expect("table was just inserted")
     }
 }
