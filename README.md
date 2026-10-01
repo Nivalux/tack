@@ -397,6 +397,21 @@ nix run github:manic-systems/tack -- init
 nix run github:manic-systems/tack -- add nixpkgs github:NixOS/nixpkgs/nixpkgs-unstable
 ```
 
+## binary cache
+
+cache.manic.systems serves tack for Linux and macOS, and `nix run` offers to
+use it through the flake's `nixConfig`. when tack comes in as a flake input or
+a tack pin, add the cache to your own nix config instead
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://cache.manic.systems" ];
+  extra-trusted-public-keys = [
+    "cache.manic.systems-1:s6OZanN8Us8vRi0jVivP3qlMn0cYHBjBALKrNe5nH8s="
+  ];
+};
+```
+
 ## license
 
 EUPL-1.2. see [LICENSE](LICENSE)

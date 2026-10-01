@@ -3,6 +3,13 @@
 {
   description = "flake-like toml nix pins, lazily fetched and transformed";
 
+  nixConfig = {
+    extra-substituters = [ "https://cache.manic.systems" ];
+    extra-trusted-public-keys = [
+      "cache.manic.systems-1:s6OZanN8Us8vRi0jVivP3qlMn0cYHBjBALKrNe5nH8s="
+    ];
+  };
+
   outputs =
     { self, ... }@args:
     let
